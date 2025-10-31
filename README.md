@@ -1,0 +1,1 @@
+De preferencia clonar proyecto en la ruta "C:" ya que las rutas definidas toanto del modelo como de los datasets tienen su origen en esa ruta.
