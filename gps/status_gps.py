@@ -11,7 +11,7 @@ PORT = 'COM3'       # Cambia según tu sistema
 BAUDRATE = 9600     # Cambia si el GPS usa otra velocidad
 
 # === RUTA DE SALIDA ===
-desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", "csv_gps")
+desktop_path = os.path.join(os.path.expanduser("~"), "C:\Vision", "csv_gps")
 os.makedirs(desktop_path, exist_ok=True)
 
 csv_filename = os.path.join(desktop_path, f"gps_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
