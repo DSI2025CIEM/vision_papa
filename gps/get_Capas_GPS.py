@@ -8,6 +8,38 @@ import csv
 import math
 import time
 from datetime import datetime
+import os
+import re
+
+def crear_nuevo_recorrido(base_path):
+    os.makedirs(base_path, exist_ok=True)
+
+    recorridos = [
+        d for d in os.listdir(base_path)
+        if os.path.isdir(os.path.join(base_path, d)) and re.match(r"Recorrido_\d+", d)
+    ]
+
+    if not recorridos:
+        nuevo_numero = 1
+    else:
+        numeros = [int(d.split("_")[1]) for d in recorridos]
+        nuevo_numero = max(numeros) + 1
+
+    recorrido_path = os.path.join(base_path, f"Recorrido_{nuevo_numero}")
+
+    rutas = {
+        "base": recorrido_path,
+        "rgb": os.path.join(recorrido_path, "Capas_RGB"),
+        "depth": os.path.join(recorrido_path, "Capas_D"),
+        "colormap": os.path.join(recorrido_path, "Capas_ColorMap"),
+    }
+
+    for ruta in rutas.values():
+        os.makedirs(ruta, exist_ok=True)
+
+    print(f"Nuevo recorrido creado: Recorrido_{nuevo_numero}")
+    return rutas
+
 
 # =====================================================
 #      EVENTO COMPARTIDO POR LAS 2 CLASES PARA CAPTURAR IMAGENES
@@ -18,12 +50,13 @@ evento_captura = threading.Event() # La bandera del evento es inicialmente False
 #      CLASE DE LECTURA DE LA CÁMARA REALSENSE
 # =====================================================
 class HiloCamara(threading.Thread):
-    def __init__(self):
+    def __init__(self, rutas):
         super().__init__(daemon=True)
         self.width = 848 # Ancho frame de camara
         self.height = 480 # Largo frame de camara
         self.count = 0 # Contador de capturas
         self.running = True # Condicional para correr hilo
+        self.rutas = rutas
 
     def run(self):
         pipe, align, depth_scale = self.start_pipeline()
@@ -49,11 +82,22 @@ class HiloCamara(threading.Thread):
                     evento_captura.clear()  # limpiar evento
 
                     # Guardar capas en sus respectivas rutas rutas
-                    np.save(f"C:/GPS/capturas/DatosCosecha/capa_d_{self.count}.npy", depth_m)
-                    cv2.imwrite(f"C:/GPS/capturas/DatosCosecha/capa_rgb_{self.count}.png", color_bgr)
-                    cv2.imwrite(f"C:/GPS/capturas/DatosCosecha/depth_colormap_{self.count}.png", depth_colormap)
+                    np.save(
+                        os.path.join(self.rutas["depth"], f"capa_d_{self.count}.npy"),
+                        depth_m
+                    )
 
-                    print(f"Imagen capturada automaticamente ({self.count})")
+                    cv2.imwrite(
+                        os.path.join(self.rutas["rgb"], f"capa_rgb_{self.count}.png"),
+                        color_bgr
+                    )
+
+                    cv2.imwrite(
+                        os.path.join(self.rutas["colormap"], f"depth_colormap_{self.count}.png"),
+                        depth_colormap
+                    )
+
+                    print(f"Imagen capturada automáticamente ({self.count})")
 
             except Exception as e:
                 print("Error hilo camara:", e)
@@ -180,6 +224,8 @@ class HiloGPS(threading.Thread):
         ser.close()
         print("Hilo GPS detenido.")
 
+    # Ecuacion de haversine
+    # Funcion que devuelve distancia entre dos puntos de la tierra
     @staticmethod
     def haversine(lat1, lon1, lat2, lon2):
         R = 6371000
@@ -190,12 +236,20 @@ class HiloGPS(threading.Thread):
         return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
 
-
 # =====================================================
 #        MAIN: INICIAR LOS HILOS
 # =====================================================
 if __name__ == "__main__":
-    hilo_camara = HiloCamara() # Instancia clase camara
+
+    # Ruta base para creacion de carpetas de los recorridos
+    BASE_PATH = "datasets\GPS_Capas"
+
+    # Carpetas de los recorridos
+    RUTAS_RECORRIDO = crear_nuevo_recorrido(BASE_PATH)
+
+    # Objeto hilo_camara, le pasamos como propiedad las carpetas de los recorridos
+    hilo_camara = HiloCamara(RUTAS_RECORRIDO)
+    # Objeto hilo_gps
     hilo_gps = HiloGPS() # Instancia clase gps
 
     hilo_camara.start() # Inicia hilo de camara
