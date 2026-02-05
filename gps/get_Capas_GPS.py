@@ -11,6 +11,9 @@ from datetime import datetime
 import os
 import re
 
+def timestamp_actual():
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+
 def crear_nuevo_recorrido(base_path):
     os.makedirs(base_path, exist_ok=True)
 
@@ -79,25 +82,28 @@ class HiloCamara(threading.Thread):
                     # Se cuenta +1 si el evento captura es True
                     self.count += 1
 
+                    # Timestamp para ligar a imagen
+                    ts = timestamp_actual()
+
                     evento_captura.clear()  # limpiar evento
 
                     # Guardar capas en sus respectivas rutas rutas
                     np.save(
-                        os.path.join(self.rutas["depth"], f"capa_d_{self.count}.npy"),
+                        os.path.join(self.rutas["depth"], f"capa_d_{self.count}_{ts}.npy"),
                         depth_m
                     )
 
                     cv2.imwrite(
-                        os.path.join(self.rutas["rgb"], f"capa_rgb_{self.count}.png"),
+                        os.path.join(self.rutas["rgb"], f"capa_rgb_{self.count}_{ts}.png"),
                         color_bgr
                     )
 
                     cv2.imwrite(
-                        os.path.join(self.rutas["colormap"], f"depth_colormap_{self.count}.png"),
+                        os.path.join(self.rutas["colormap"], f"depth_colormap_{self.count}_{ts}.png"),
                         depth_colormap
                     )
 
-                    print(f"Imagen capturada automáticamente ({self.count})")
+                    print(f"Imagen {self.count} capturada | Timestamp: {ts}")
 
             except Exception as e:
                 print("Error hilo camara:", e)
