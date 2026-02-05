@@ -10,6 +10,16 @@ import time
 from datetime import datetime
 import os
 import re
+from threading import Lock
+
+estado_gps = {
+    "lat": None,
+    "lon": None,
+    "distancia_umbral": 0.0,
+    "distancia_total": 0.0
+}
+
+lock_gps = Lock()
 
 def timestamp_actual():
     return datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
@@ -53,13 +63,14 @@ evento_captura = threading.Event() # La bandera del evento es inicialmente False
 #      CLASE DE LECTURA DE LA CÁMARA REALSENSE
 # =====================================================
 class HiloCamara(threading.Thread):
-    def __init__(self, rutas):
+    def __init__(self, rutas, csv_path):
         super().__init__(daemon=True)
         self.width = 848 # Ancho frame de camara
         self.height = 480 # Largo frame de camara
         self.count = 0 # Contador de capturas
         self.running = True # Condicional para correr hilo
         self.rutas = rutas
+        self.csv_path = csv_path
 
     def run(self):
         pipe, align, depth_scale = self.start_pipeline()
@@ -85,7 +96,7 @@ class HiloCamara(threading.Thread):
                     # Timestamp para ligar a imagen
                     ts = timestamp_actual()
 
-                    evento_captura.clear()  # limpiar evento
+                    
 
                     # Guardar capas en sus respectivas rutas rutas
                     np.save(
@@ -102,6 +113,27 @@ class HiloCamara(threading.Thread):
                         os.path.join(self.rutas["colormap"], f"depth_colormap_{self.count}_{ts}.png"),
                         depth_colormap
                     )
+
+                    # Leer estado GPS congelado
+                    with lock_gps:
+                        lat = estado_gps["lat"]
+                        lon = estado_gps["lon"]
+                        dist_umbral = estado_gps["distancia_umbral"]
+                        dist_total = estado_gps["distancia_total"]
+
+                    # Escribir CSV
+                    with open(self.csv_path, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([
+                            self.count,
+                            ts,
+                            lat,
+                            lon,
+                            round(dist_umbral, 3),
+                            round(dist_total, 3)
+                        ])
+
+                    evento_captura.clear()  # limpiar evento
 
                     print(f"Imagen {self.count} capturada | Timestamp: {ts}")
 
@@ -199,7 +231,7 @@ class HiloGPS(threading.Thread):
                     print(f"Punto inicial -> {lat:.6f}, {lon:.6f}")
                     continue
 
-                # Distancia desde el ultimo punto (sumatoria total)
+                # Distancia entre dos lecturas consecutivas del GPS
                                             # lat1,            lon1,             lat2, lon2
                 incremento = self.haversine(punto_anterior[0], punto_anterior[1], lat, lon)
 
@@ -214,10 +246,18 @@ class HiloGPS(threading.Thread):
                 # Distancia desde el punto inicial a donde se capturo la foto
                 distancia_umbral = self.haversine(punto_inicial[0], punto_inicial[1], lat, lon)
 
-                # Verificar si se supero el umbral
+                # Si la distancia_umbral es mayor al umbral de 1.13m se manda la señal de captura y punto_inicial va guardar las coordenadas que detecto en ese momento de captura
+                # Si todavia no se cumple la condicion se ignora el if y el while se duerme 0.1 segundos y se vuelven a hacer los calculos
                 if distancia_umbral >= self.umbral:
                     print(f"Capturando capas, el GPS se ha movido: {distancia_umbral:.2f} m (>= {self.umbral} m)")
-                    punto_inicial = (lat, lon)
+
+                    with lock_gps:
+                        estado_gps["lat"] = lat
+                        estado_gps["lon"] = lon
+                        estado_gps["distancia_umbral"] = distancia_umbral
+                        estado_gps["distancia_total"] = self.distancia_total
+
+                    punto_inicial = (lat, lon) # El punto inicial se actualiza hasta que se supera el umbral de distancia
 
                     # Avisar al hilo de cámara
                     evento_captura.set()
@@ -253,8 +293,21 @@ if __name__ == "__main__":
     # Carpetas de los recorridos
     RUTAS_RECORRIDO = crear_nuevo_recorrido(BASE_PATH)
 
+    csv_path = os.path.join(RUTAS_RECORRIDO["base"], "Recorrido.csv")
+
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "captura",
+            "timestamp",
+            "lat",
+            "lon",
+            "distancia_umbral",
+            "distancia_total"
+        ])
+
     # Objeto hilo_camara, le pasamos como propiedad las carpetas de los recorridos
-    hilo_camara = HiloCamara(RUTAS_RECORRIDO)
+    hilo_camara = HiloCamara(RUTAS_RECORRIDO, csv_path)
     # Objeto hilo_gps
     hilo_gps = HiloGPS() # Instancia clase gps
 
